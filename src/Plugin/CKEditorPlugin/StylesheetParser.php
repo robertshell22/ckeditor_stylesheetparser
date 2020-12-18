@@ -97,7 +97,8 @@ class StylesheetParser extends CKEditorPluginBase implements CKEditorPluginConfi
     if (!isset($settings['plugins']['stylesheetparser']['styles'])) {
       return $config;
     }
-    $styles = $settings['plugins']['stylesheetparser']['styles'];
+    $stylesheet = $settings['plugins']['stylesheetparser']['styles'];
+    $styles = file_get_contents($stylesheet);
     $config['stylesSet'] = $this->generateStylesSetSetting($styles);
   }
 
