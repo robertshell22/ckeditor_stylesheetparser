@@ -4,16 +4,10 @@ namespace Drupal\ckeditor_stylesheetparser\Plugin\CKEditorPlugin;
 
 use Drupal;
 use Drupal\ckeditor\CKEditorPluginBase;
-use Drupal\Core\Plugin\PluginBase;
-use Drupal\ckeditor\CKEditorPluginInterface;
-use Drupal\ckeditor\CKEditorPluginButtonsInterface;
-use Drupal\ckeditor\CKEditorPluginContextualInterface;
 use Drupal\editor\Entity\Editor;
-use Drupal\Core\Config\ConfigFactory;
 use Drupal\Core\Form\FormStateInterface;
-use Symfony\Component\DependencyInjection\ContainerInterface;
+use Drupal\ckeditor\CKEditorPluginConfigurableInterface;
 use Drupal\Core\Extension;
-use Drupal\Core\Asset\LibraryDiscoveryInterface;
 
 /**
  * Defines the "Stylesheet Parser" plugin.
@@ -25,13 +19,6 @@ use Drupal\Core\Asset\LibraryDiscoveryInterface;
  * )
  */
 class StylesheetParser extends CKEditorPluginBase implements CKEditorPluginConfigurableInterface {
-
-  /**
-   * Drupal\Core\Asset\LibraryDiscoveryInterface definition.
-   *
-   * @var \Drupal\Core\Asset\LibraryDiscoveryInterface
-   */
-  protected $libraryDiscovery;
 
   /**
    * Implements
@@ -75,31 +62,17 @@ class StylesheetParser extends CKEditorPluginBase implements CKEditorPluginConfi
   public function getConfig(Editor $editor) {
     $config = [];
     $settings = $editor->getSettings();
-
-    if (!isset($settings['plugins']['stylesheetparser']['stylesheet'])) {
+    if (!isset($settings['plugins']['stylesheetparser']['styles'])) {
       return $config;
     }
+
     $stylesheet = $settings['plugins']['stylesheetparser']['stylesheet'];
-    $config['styleSheets'] = $this->getStyleSheetSetting($stylesheet);
-
-    if (!isset($settings['plugins']['stylesheetparser']['styles'])) {
-      return $config;
-    }
-    $skipselectors = $settings['plugins']['stylesheetparser']['skipselectors'];
-    $config['stylesheetParser_validSelectors'] = $this->getSkipSelectorsSetting($skipselectors);
-
-    if (!isset($settings['plugins']['stylesheetparser']['styles'])) {
-      return $config;
-    }
-    $validselectors = $settings['plugins']['stylesheetparser']['validselectors'];
-    $config['stylesheetParser_validSelectors'] = $this->getValidSelectorsSetting($validselectors);
-
-    if (!isset($settings['plugins']['stylesheetparser']['styles'])) {
-      return $config;
-    }
-    $stylesheet = $settings['plugins']['stylesheetparser']['styles'];
-    $styles = file_get_contents($stylesheet);
+    $config['styleSheet'] = $stylesheet;
+    $validselectors  = $settings['plugins']['stylesheetparser']['validselectors'];
+    $config['stylesSet'] = $validselectors;
+    $styles = $settings['plugins']['stylesheetparser']['styles'];
     $config['stylesSet'] = $this->generateStylesSetSetting($styles);
+    return $config;
   }
 
   /**
@@ -132,13 +105,11 @@ class StylesheetParser extends CKEditorPluginBase implements CKEditorPluginConfi
       $config = $settings['plugins']['stylesheetparser'];
     }
 
-    $stylesheet = $this->getStylesheet();
+    $stylesheets = $this->getStylesheets();
     $skipselectors = $this->getSkipSelectors();
     $validselectors = $this->getValidSelectors();
     natcasesort($skipselectors);
     natcasesort($validselectors);
-
-    $form['#attached']['library'][] = 'ckeditor_stylesheetparser/ckeditor.stylesheetparser.admin';
 
     $form['stylesheet'] = [
       '#type' => 'select',
@@ -147,8 +118,8 @@ class StylesheetParser extends CKEditorPluginBase implements CKEditorPluginConfi
       '#attached' => [
         'library' => ['ckeditor_stylesheetparser/ckeditor.stylesheetparser.admin'],
       ],
-      '#options' => $stylesheet,
-      '#default_value' => !empty($config['stylesheet']) ? $config['stylesheet'] : $this->getDefaultStylesheet(),
+      '#options' => $this->getStylesheets(),
+      '#default_value' => !empty($config['stylesheet']) ? $config['stylesheet'] : $this->getStylesheet(),
     ];
 
     $form['skipselectors'] = [
@@ -171,7 +142,7 @@ class StylesheetParser extends CKEditorPluginBase implements CKEditorPluginConfi
       '#title' => $this->t('Styles'),
       '#title_display' => 'invisible',
       '#type' => 'hidden',
-      '#default_value' => !empty($form['stylesheet']) ? file_get_contents($form['stylesheet']) : file_get_contents($this->getDefaultStylesheet()),
+      '#default_value' => !empty($config['stylesheet']) ? file_get_contents($config['stylesheet']) : file_get_contents($config['stylesheet']),
       '#element_validate' => [
         [$this, 'validateStylesValue'],
       ],
@@ -210,41 +181,56 @@ class StylesheetParser extends CKEditorPluginBase implements CKEditorPluginConfi
   private function getStylesheets() {
     $themes = [];
     $stylesheet_options = [];
-    foreach ($this->listInfo() as $name => $theme) {
-      $themes[$name] = $this->root . '/' . $theme
+    $theme_handler = Drupal::service('theme_handler');
+
+    foreach ($theme_handler->listInfo() as $name => $theme) {
+      $themes = $theme_handler->listInfo();
+      $names = $themes[$name]->info['name'];
+      $path = DRUPAL_ROOT . '/' . $theme
           ->getPath();
-      $stylesheets = preg_grep('/\.css/', scandir($themes[$name]));
-      foreach ($stylesheets as $stylesheet) {
-        if (file_exists(DRUPAL_ROOT . '/' . $stylesheet)) {
-          $stylesheet_name = str_replace('.css', '', $stylesheet);
-          $stylesheet_options[$stylesheet_name] = [$stylesheet => $stylesheet_name];
-        }
-        elseif (file_exists(DRUPAL_ROOT . '/' . $stylesheet)) {
-          $defaultThemeName = Drupal::service('theme.manager')
-            ->getActiveTheme()
-            ->getName();
-          $defaultThemePath = DRUPAL_ROOT . '/' . drupal_get_path('theme', $defaultThemeName);
-          $stylesheets = preg_grep('/\.css/', scandir($defaultThemePath));
-          foreach ($stylesheets as $stylesheet) {
-            if (file_exists(DRUPAL_ROOT . '/' . $stylesheet)) {
-              $stylesheet_name = str_replace('.css', '', $stylesheet);
-              $stylesheet_options[$stylesheet_name] = [$stylesheet => $stylesheet_name];
-            }
-          }
-        }
-        else {
-          $defaultstylesheet = drupal_get_path('module', 'ckeditor_stylesheetparser') . '/js/plugins/stylesheetparser/samples/assets/sample.css';
-          $stylesheet = str_replace('.css', '', $defaultstylesheet);
-          if (file_exists(DRUPAL_ROOT . '/' . $stylesheet)) {
-            $stylesheet_name = str_replace('.css', '', $stylesheet);
-            $stylesheet_options[$stylesheet_name] = [$stylesheet => $stylesheet_name];
-          }
-        }
+      $stylesheete = $path . '/css/' . $name . '.' . 'ckeditor.css';
+      $default_stylesheet = drupal_get_path('module', 'ckeditor_stylesheetparser') . '/js/plugins/stylesheetparser/samples/assets/sample.css';
+
+      if (file_exists($stylesheete)) {
+        $stylesheet_options = [$stylesheete => $names];
+      } elseif (!file_exists($stylesheete)) {
+        $stylesheet_options = [$default_stylesheet => $names];
       }
+      return $stylesheet_options ;
     }
-    return $stylesheet_options;
   }
 
+  /**
+   * Return an array of stylesheets from installed themes..
+   *
+   * This should be used when presenting selector options to the user in a form
+   * element.
+   *
+   * @return string
+   *   Set of stylesheet filenames.
+   */
+  private function getStylesheet() {
+    $themes = [];
+    $stylesheet_options = [];
+    $theme_handler = Drupal::service('theme_handler');
+    foreach ($theme_handler->listInfo() as $name => $theme) {
+      $themes = [];
+      $stylesheet_options = [];
+      $theme_handler = Drupal::service('theme_handler');
+      foreach ($theme_handler->listInfo() as $name => $theme) {
+        $themes[$name] = DRUPAL_ROOT . '/' . $theme
+            ->getPath();
+        if (file_exists($themes[$name])) {
+          $stylesheet = $themes[$name] . '/css/' . $name . '.' . 'ckeditor.css';
+        }
+        else {
+          $stylesheet = drupal_get_path('module', 'ckeditor_stylesheetparser') . '/js/plugins/stylesheetparser/samples/assets/sample.css';
+        }
+      }
+      $stylesheet_options = $stylesheet;
+      return $stylesheet_options;
+    }
+  }
   /**
    * Return the default stylesheet if one is not set in active config.
    *
@@ -281,8 +267,8 @@ class StylesheetParser extends CKEditorPluginBase implements CKEditorPluginConfi
    *   Default CSS Skip selectors.
    */
   private function getDefaultSkipSelectors() {
-    $skipselectors = array_keys($this->getSkipSelectors());
-    return array_combine($skipselectors, $skipselectors);
+    $skipselectors = $this->getSkipSelectors();
+    return reset($skipselectors);
   }
 
   /**
@@ -314,8 +300,8 @@ class StylesheetParser extends CKEditorPluginBase implements CKEditorPluginConfi
    *   Default CSS Valid selectors.
    */
   private function getDefaultValidSelectors() {
-    $validselectors = array_keys($this->getValidSelectors());
-    return array_combine($validselectors, $validselectors);
+    $validselectors = $this->getValidSelectors();
+    return reset($validselectors);
   }
 
   /**
@@ -397,5 +383,4 @@ class StylesheetParser extends CKEditorPluginBase implements CKEditorPluginConfi
     }
     return $styles_set;
   }
-
 }
