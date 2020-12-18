@@ -1,0 +1,76 @@
+<?php
+
+/**
+ * @file
+ * Provides the CKEditor stylesheetparser plugin with the WYSIWYG editor.
+ */
+
+use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\editor\Entity\Editor;
+
+/**
+ * Implements hook_help().
+ */
+function ckeditor_stylesheetparser_help($route_name, RouteMatchInterface $route_match) {
+  switch ($route_name) {
+    // Main module help for the ckeditor_stylesheetparser module.
+    case 'help.page.ckeditor_stylesheetparser':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('This plugin module provides stylesheet parsing integration with the CKEditor WYSIWYG editor in Drupal 8') . '</p>';
+      $output .= '<p><ul>';
+      $output .= '  <li>Dialog to select stylesheets to include.</li>';
+      $output .= '  <li>Filter the stylesheet classes by selector.</li>';
+      $output .= '</ul></p>';
+      $output .= '<p><a href="https://ckeditor.com/cke4/addon/fakeobjects">https://ckeditor.com/cke4/addon/stylesheetparser</a></p>';
+      return $output;
+
+    default:
+  }
+}
+
+/**
+ * Implements hook_ckeditor_css_alter().
+ *
+ * Injects our selected CSS sheet anytime CKEditor has loaded.
+ */
+function ckeditor_stylesheetparser_ckeditor_css_alter(array &$css, Editor $editor) {
+  if (!$editor->hasAssociatedFilterFormat()) {
+    return;
+  }
+  $settings = $editor->getSettings();
+  // Get site default theme name.
+  $defaultThemeName = \Drupal::service('theme.manager')
+    ->getActiveTheme()
+    ->getName();
+  $defaultstylesheet = drupal_get_path('module', 'ckeditor_stylesheetparser') . '/css/ckeditor-stylesheetparser-default.css';
+
+  if (!empty($settings['plugins']['stylesheetparser']['stylesheet'])) {
+    $css[] = !empty($settings['plugins']['stylesheetparser']['stylesheet']) ? $settings['plugins']['stylesheetparser']['stylesheet'] : $defaultstylesheet;
+  }
+}
+
+/**
+ * Implements hook_preprocess_html().
+ *
+ * Ensure our necessary scripts are loaded to the page.
+ */
+function ckeditor_stylesheetparser_preprocess_html(&$variables) {
+
+  $variables['#attached']['library'][] = drupal_get_path('module', 'ckeditor_stylesheetparser') . '/js/plugins/stylesheetparser/plugin.js';
+
+  $entity = \Drupal::entityTypeManager()->getStorage('editor');
+  $editors = $entity->loadMultiple();
+
+  foreach ($editors as $editor) {
+    if ($editor->getEditor() != 'ckeditor') {
+      // quit, as the plugin only works for CKEditor.
+      continue;
+    }
+    $settings = $editor->getSettings();
+
+    if (!empty($settings['plugins']['stylesheetparser']['stylesheet'])) {
+      $variables['#attached']['library'][] = drupal_get_path('module', 'ckeditor_stylesheetparser') . '/js/plugins/stylesheetparser/plugin.js' . $settings['plugins']['stylesheetparser']['stylesheet'];
+    }
+  }
+}

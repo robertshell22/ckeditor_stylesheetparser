@@ -1,0 +1,4 @@
+ckeditor.stylesheetparser.admin:
+  version: 1.x
+  js:
+    js/ckeditor_stylesheetparser.admin.js: {}
